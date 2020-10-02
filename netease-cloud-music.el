@@ -1,16 +1,34 @@
-;;;; Netease Music :: A netease music client for Emacs.
+;;; netease-cloud-music.el --- Netease Cloud Music client for Emacs -*- lexical-binding: t -*-
 
-;;; Intro
-;; Copyright (C) 2020 SpringHan
-
-;; Author: SpringHan <springchohaku@qq.com>
+;; Author: SpringHan
 ;; Maintainer: SpringHan
+;; Version: 1.5
+;; Package-Requires: (cl async request json)
+;; Homepage: https://github.com/SpringHan/netease-cloud-music.git
+;; Keywords: Player
 
-;; Version: 1.0
-;; License: GPL-3.0
 
-;; Last Change: 2020-09-11
-;; Repository: https://github.com/SpringHan/netease-cloud-music.el
+;; This file is not part of GNU Emacs
+
+;; This file is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation; either version 3, or (at your option)
+;; any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; For a full copy of the GNU General Public License
+;; see <http://www.gnu.org/licenses/>.
+
+
+;;; Commentary:
+
+;; Netease Cloud Music
+
+;;; Code:
 
 (eval-when-compile
 	(require 'cl))
@@ -661,3 +679,5 @@ Else if it's string, return the playlist as string."
 					 (buffer-string)))))))
 
 (provide 'netease-cloud-music)
+
+;;; netease-cloud-music.el ends here
