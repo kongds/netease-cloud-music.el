@@ -27,6 +27,11 @@
 	:type 'hook
 	:group 'netease-cloud-music)
 
+(defcustom netease-cloud-music-switch-mode-hook nil
+	"The hook for Netease Cloud Music Switch mode."
+	:type 'hook
+	:group 'netease-cloud-music)
+
 (defcustom netease-cloud-music-view-buffer-hook nil
 	"The hook for view the Netease Music buffer."
 	:type 'hook
@@ -88,6 +93,9 @@ pause-message seek-forward-message seek-backward-message")
 (defvar netease-cloud-music-repeat-mode ""
 	"The repeat mode for Netease Cloud Music.")
 
+(defvar netease-cloud-music-search-limit 10
+	"The search limit for Netease Cloud Music.")
+
 (defvar netease-cloud-music-mode-map
 	(let ((map (make-sparse-keymap)))
 		(define-key map "q" 'netease-cloud-music-close)
@@ -108,6 +116,15 @@ pause-message seek-forward-message seek-backward-message")
 		map)
 	"Netease Music mode map.")
 
+(defvar netease-cloud-music-switch-mode-map
+	(let ((map (make-sparse-keymap)))
+		(define-key map "q" 'netease-cloud-music-switch-close)
+		(define-key map "n" 'next-line)
+		(define-key map "p" 'previous-line)
+		(define-key map (kbd "RET") 'netease-cloud-music-switch-enter)
+		map)
+	"The Netease Cloud Music Switch mode map.")
+
 (define-derived-mode netease-cloud-music-mode nil "Netease-Cloud-Music"
 	"The mode of Netease Music mode."
 	:group 'netease-cloud-music
@@ -116,6 +133,24 @@ pause-message seek-forward-message seek-backward-message")
 	(linum-mode -1)
 	(setq buffer-read-only t
 				truncate-lines t))
+
+(define-derived-mode netease-cloud-music-switch-mode netease-cloud-music-mode "Netease-Cloud-Music:Switch"
+	"The child mode for `netease-cloud-music-mode' to do switch action."
+	:group 'netease-cloud-music
+	:abbrev-table nil
+	:syntax-table nil)
+
+(defun netease-cloud-music-open-switch (buffer-name)
+	"Open the switch buffer."
+	(split-window nil nil 'above)
+	(switch-to-buffer (format "*Netease-Cloud-Music:Switch->%s*"
+														buffer-name))
+	(netease-cloud-music-switch-mode))
+
+(defun netease-cloud-music-switch-close ()
+	"Close the switch buffer."
+	(interactive)
+	(kill-buffer-and-window))							;<TODO(SpringHan)> Maybe will add new features [Fri Oct  2 18:51:04 2020]
 
 ;;;###autoload
 (defun netease-cloud-music ()
@@ -162,20 +197,25 @@ Otherwise return nil."
 		(lambda (&key data &allow-other-keys)
 			,@form)))
 
-(defun netease-cloud-music-request-from-api (content &key type)
+(cl-defun netease-cloud-music-request-from-api (content &key (type 'song) (limit "1"))
 	"Request the CONTENT from Netease Music API.
 
 CONTENT is a string.
 
-TYPE is a symbol, its value can be song."
+TYPE is a symbol, its value can be song.
+
+NUMBER is the limit for the search result."
 	(let (result search-type)
+		;; result type
 		(pcase type
 			('song (setq search-type "1")))
+		(when (numberp limit)
+			(setq limit (number-to-string limit)))
 		(request
 			netease-cloud-music-search-api
 			:type "POST"
 			:data `(("s" . ,content)
-							("limit" . "1")
+							("limit" . ,number)
 							("type" . ,search-type)
 							("offset" . "0"))
 			:parser 'json-read
@@ -198,8 +238,10 @@ Otherwise return nil."
 		(when (string= result "y")
 			(cl-return-from netease-cloud-music-ask t))))
 
-(cl-defun netease-cloud-music-read-json (data &key sid sname aid aname)
+(cl-defun netease-cloud-music-read-json (data &key (sid nil) (sname nil) (aid nil) (aname nil) (limit 1))
 	"Read the Netease Music json DATA and return the result.
+
+LIMIT is the data's number.
 
 SID is the song-id.
 
@@ -208,26 +250,39 @@ SNAME is the song-name.
 AID is the artist-id.
 
 ANAME is the artist-name."
-	(let (song-json r-sid r-sname r-aid r-aname)
+	(let (result song-json r-sid r-sname r-aid r-aname to-get-json)
 		(if (eq (car (cadar data)) 'queryCorrected)
-				(setq song-json (aref (cdar
-															 (cddar data)) 0))
-			(setq song-json (aref (cdr
-														 (cadar data)) 0)))
-		(when sid
-			(setq r-sid (cdar song-json)))
-		(when sname
-			(setq r-sname
-						(cdadr song-json)))
-		(when aid
-			(setq r-aid
-						(cdar (aref
-									 (cdar (cddr song-json)) 0))))
-		(when aname
-			(setq r-aname
-						(cdadr (aref
-										(cdar (cddr song-json)) 0))))
-		(list r-sid r-sname r-aid r-aname)))
+				(if (> limit 1)
+						(setq song-json (cdar (cddar data)))
+					(setq song-json (aref (cdar (cddar data)) 0)))
+			(if (> limit 1)
+					(setq song-json (cdr (cadar data)))
+				(setq song-json (aref (cdr (cadar data)) 0))))
+		(dotimes (song-time limit)
+			;; Set the json which is contented the songs info
+			(if (= limit 1)
+					(setq to-get-json song-json)
+				(setq to-get-json (aref song-json song-time)))
+
+			(when sid
+				(setq r-sid (cdar to-get-json)))
+			(when sname
+				(setq r-sname
+							(cdadr to-get-json)))
+			(when aid
+				(setq r-aid
+							(cdar (aref
+										 (cdar (cddr to-get-json)) 0))))
+			(when aname
+				(setq r-aname
+							(cdadr (aref
+											(cdar (cddr to-get-json)) 0))))
+			(if (not (null result))
+					(setf result (append result (list (list r-sid r-sname r-aid r-aname))))
+				(if (= limit 1)
+						(setf result (list r-sid r-sname r-aid r-aname))
+					(setf result (list (list r-sid r-sname r-aid r-aname))))))
+		result))
 
 (defun netease-cloud-music-search-song (song-name)
 	"Search SONG-NAME from Netease Music and return the song id.
@@ -243,23 +298,15 @@ SONG-NAME is a string."
 						 (netease-cloud-music-request-from-api (format
 																										"%s %s"
 																										song-name artist-name)
-																									 :type 'song)
-						 :sid t :sname t :aname t))
-					 (result-song-id (car search-result))
-					 (result-song-name (nth 1 search-result))
-					 (result-artist-name (nth 3 search-result)))
-			(if (and (not (string= artist-name "")) (not (string-match artist-name result-artist-name)))
-					(message "[Netease-Cloud-Music]: Can't find the song.")
-				(netease-cloud-music-interface-init
-				 :content (list result-song-name result-artist-name)
-				 :type 'song-ask)
-				(if (netease-cloud-music-ask 'song)
-						(progn
-							(when (string= netease-cloud-music-repeat-mode "")
-								(setq netease-cloud-music-repeat-mode "song"))
-							(netease-cloud-music-play result-song-id result-song-name result-artist-name "song"))
-					(message "[Netease-Cloud-Music]: Now, the song catched won't be played.")
-					(netease-cloud-music-interface-init))))))
+																									 :type 'song
+																									 :limit netease-cloud-music-search-limit)
+						 :sid t :sname t :aname t :limit netease-cloud-music-search-limit)))
+			(netease-cloud-music-search-song--open-switch search-result))))
+
+(defun netease-cloud-music-search-song--open-switch (songs-info)
+	"Enter the `netease-cloud-music-switch-mode' to switch song from searched."
+	(interactive)													; For debug
+	(netease-cloud-music-open-switch "Songs"))
 
 (defun netease-cloud-music-change-repeat-mode ()
 	"Change the repeat mode."
