@@ -93,11 +93,11 @@ It can be song or playlist."
   :group 'netease-cloud-music)
 
 (defcustom netease-cloud-music-player-command
+  '("mplayer" "-slave" "pause\n" "pause\n" "seek 5\n" "seek -5\n")
   "The player command for playing the online songs.
 Its format is lick this:
 '(command play-online-songs-arg continue-message
 pause-message seek-forward-message seek-backward-message"
-  '("mplayer" "-slave" "pause\n" "pause\n" "seek 5\n" "seek -5\n")
   :type 'list
   :group 'netease-cloud-music)
 
@@ -223,93 +223,6 @@ Otherwise return nil."
   `(function*
     (lambda (&key data &allow-other-keys)
       ,@form)))
-
-(cl-defun netease-cloud-music-request-from-api (content &key (type 'song) (limit "1"))
-  "Request the CONTENT from Netease Music API.
-
-CONTENT is a string.
-
-TYPE is a symbol, its value can be song.
-
-NUMBER is the limit for the search result."
-  (let (result search-type)
-    ;; result type
-    (pcase type
-      ('song (setq search-type "1")))
-    (when (numberp limit)
-      (setq limit (number-to-string limit)))
-    (request
-      netease-cloud-music-search-api
-      :type "POST"
-      :data `(("s" . ,content)
-              ("limit" . ,number)
-              ("type" . ,search-type)
-              ("offset" . "0"))
-      :parser 'json-read
-      :success (netease-cloud-music-expand-form (setq result data))
-      :sync t)
-    result))
-
-(cl-defun netease-cloud-music-ask (type)
-  "Ask user TYPE of the question.
-If user reply y, return t.
-Otherwise return nil."
-  (let (result)
-    (pcase type
-      ('song
-       (setq result (read-minibuffer "The info of the song is here, do you want to listen it?(y/n)" "y")))
-      ('add-song-to-playlist
-       (setq result (read-minibuffer "Do you want to add the current song into playlist?(y/n)" "y")))
-      ('delete-song-from-playlist
-       (setq result (read-minibuffer "Do you want to delete the song from playlist?(y/n)" "y"))))
-    (when (string= result "y")
-      (cl-return-from netease-cloud-music-ask t))))
-
-(cl-defun netease-cloud-music-read-json (data &key (sid nil) (sname nil) (aid nil) (aname nil) (limit 1))
-  "Read the Netease Music json DATA and return the result.
-
-LIMIT is the data's number.
-
-SID is the song-id.
-
-SNAME is the song-name.
-
-AID is the artist-id.
-
-ANAME is the artist-name."
-  (let (result song-json r-sid r-sname r-aid r-aname to-get-json)
-    (if (eq (car (cadar data)) 'queryCorrected)
-        (if (> limit 1)
-            (setq song-json (cdar (cddar data)))
-          (setq song-json (aref (cdar (cddar data)) 0)))
-      (if (> limit 1)
-          (setq song-json (cdr (cadar data)))
-        (setq song-json (aref (cdr (cadar data)) 0))))
-    (dotimes (song-time limit)
-      ;; Set the json which is contented the songs info
-      (if (= limit 1)
-          (setq to-get-json song-json)
-        (setq to-get-json (aref song-json song-time)))
-
-      (when sid
-        (setq r-sid (cdar to-get-json)))
-      (when sname
-        (setq r-sname
-              (cdadr to-get-json)))
-      (when aid
-        (setq r-aid
-              (cdar (aref
-                     (cdar (cddr to-get-json)) 0))))
-      (when aname
-        (setq r-aname
-              (cdadr (aref
-                      (cdar (cddr to-get-json)) 0))))
-      (if (not (null result))
-          (setf result (append result (list (list r-sid r-sname r-aid r-aname))))
-        (if (= limit 1)
-            (setf result (list r-sid r-sname r-aid r-aname))
-          (setf result (list (list r-sid r-sname r-aid r-aname))))))
-    result))
 
 (defun netease-cloud-music-search-song (song-name)
   "Search SONG-NAME from Netease Music and return the song id.
@@ -627,6 +540,21 @@ Otherwise return nil."
   (when (netease-cloud-music-process-live-p)
     (process-send-string netease-cloud-music-process
                          (nth 5 netease-cloud-music-player-command))))
+
+;;; Login
+(defun netease-cloud-music-login (loginfo &optional overwrite)
+  "Login with LOGINFO. If the OVERWRITE is t, the log-info file will be rewrite with LOGINFO."
+  (interactive (let* ((info (netease-cloud-music-get-loginfo))
+                      (name (read-string "Enter username/phone-number: "
+                                         (car-safe info)))
+                      (password (read-passwd "Enter password: " (cdr-safe info)))
+                      ow)
+                 (when (and info (not (string= password (cdr info))))
+                   (setq ow t))
+                 (list (cons name password) ow)))
+  ;; Login...
+  (when overwrite
+    (netease-cloud-music-save-loginfo loginfo)))
 
 (provide 'netease-cloud-music)
 
