@@ -171,6 +171,15 @@ LIMIT is the limit for the results, it's a number."
           (setf result (list (list r-sid r-sname r-aid r-aname))))))
     result))
 
+(defun netease-cloud-music--get-song-list (name artist)
+  "Get the song-info list by its NAME and ARTIST."
+  (when netease-cloud-music-search-alist
+    (catch 'result
+      (dolist (song-list netease-cloud-music-search-alist)
+        (when (and (string= name (nth 1 song-list))
+                   (string= artist (nth 3 song-list)))
+          (throw 'result song-list))))))
+
 (provide 'netease-cloud-music-functions)
 
 ;;; netease-cloud-music-functions.el ends here

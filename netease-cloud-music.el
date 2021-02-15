@@ -3,7 +3,7 @@
 ;; Author: SpringHan
 ;; Maintainer: SpringHan
 ;; Version: 2.0
-;; Package-Requires: ((cl) (async) (request) (json))
+;; Package-Requires: ((cl) (async) (request) (json "1.4"))
 ;; Homepage: https://github.com/SpringHan/netease-cloud-music.git
 ;; Keywords: Player
 
@@ -157,6 +157,7 @@ pause-message seek-forward-message seek-backward-message"
     map)
   "The Netease Cloud Music Switch mode map.")
 
+;;;###autoload
 (define-derived-mode netease-cloud-music-mode nil "Netease-Cloud-Music"
   "The mode of Netease Music mode."
   :group 'netease-cloud-music
@@ -166,6 +167,7 @@ pause-message seek-forward-message seek-backward-message"
   (setq buffer-read-only t
         truncate-lines t))
 
+;;;###autoload
 (define-derived-mode netease-cloud-music-switch-mode netease-cloud-music-mode "Netease-Cloud-Music:Switch"
   "The child mode for `netease-cloud-music-mode' to do switch action."
   :group 'netease-cloud-music
@@ -182,7 +184,23 @@ pause-message seek-forward-message seek-backward-message"
 (defun netease-cloud-music-switch-close ()
   "Close the switch buffer."
   (interactive)
-  (kill-buffer-and-window))             ;<TODO(SpringHan)> Maybe will add new features [Fri Oct  2 18:51:04 2020]
+  (kill-buffer-and-window)) ; NOTE: Maybe will add new features.
+
+(defun netease-cloud-music-switch-enter ()
+  "The enter action in `netease-cloud-music-switch-mode'."
+  (interactive)
+  (let* ((content (substring-no-properties (thing-at-point 'line) 0 -1))
+         (song-info (progn
+                      (string-match "^<<\\(.*\\)>> - \\(.*\\)" content)
+                      (cons (match-string 1 content) (match-string 2 content))))
+         (song (car-safe song-info))
+         (artist (cdr-safe song-info)))
+    (if (not (and song artist))
+        (user-error "[Netease-Cloud-Music]: The song info of the song under cursor is error!")
+      (netease-cloud-music-play
+       (car-safe (netease-cloud-music--get-song-list song artist))
+       song artist "song")
+      (netease-cloud-music-switch-close))))
 
 ;;;###autoload
 (defun netease-cloud-music ()
@@ -254,18 +272,19 @@ SONG-NAME is a string."
   (netease-cloud-music-open-switch "Songs")
   (with-current-buffer "*Netease-Cloud-Music:Switch->Songs*"
     (setq-local buffer-read-only nil)
-    (if (listp (car-safe songs-info))
-        (mapc #'(lambda (s)
-                  (insert (propertize (nth 1 s) 'face 'font-lock-keyword-face)
-                          " - "
-                          (propertize (nth 3 s) 'face 'font-lock-function-name-face)
-                          "\n"))
-              songs-info)
-      (insert (propertize (nth 1 songs-info) 'face 'font-lock-keyword-face)
-              " - "
-              (propertize (nth 3 songs-info) 'face 'font-lock-function-name-face)
-              "\n"))
-    (setq-local buffer-read-only t)))
+    (let ((prefix (propertize "<<" 'face 'font-lock-comment-face))
+          (end (propertize ">>" 'face 'font-lock-comment-face)))
+      (mapc #'(lambda (s)
+                (insert prefix
+                        (propertize (nth 1 s) 'face 'font-lock-keyword-face)
+                        end " - "
+                        (propertize (nth 3 s) 'face 'font-lock-function-name-face)
+                        "\n"))
+            (if (listp (car-safe songs-info))
+                songs-info
+              (list songs-info))))
+    (setq-local buffer-read-only t)
+    (goto-char (point-min))))
 
 (defun netease-cloud-music-change-repeat-mode ()
   "Change the repeat mode."
@@ -285,7 +304,7 @@ SONG-NAME is a string."
                (setq netease-cloud-music-repeat-mode "off")))))
     (netease-cloud-music-interface-init)))
 
-(cl-defun netease-cloud-music-interface-init (&key content type)
+(defun netease-cloud-music-interface-init (&optional content type)
   "Initialize the Netease Music buffer interface.
 CONTENT is a cons, its value is variable with TYPE.
 
@@ -363,7 +382,7 @@ If CONTENT is nil and TYPE is not song, it will print the init content."
 (defun netease-cloud-music-play (song-id song-name artist-name play-type)
   "Play the song by its SONG-ID and update the interface with SONG-NAME"
   (if (null song-id)
-      (error "[Netease-Cloud-Music]: There's no song-id!")
+      (user-error "[Netease-Cloud-Music]: There's no song-id!")
     (netease-cloud-music-kill-process)
     (setq netease-cloud-music-process
           (async-start-process "netease-cloud-music-play:process"
