@@ -82,14 +82,16 @@
       (make-empty-file file-path))
     exists-p))
 
-(cl-defun netease-cloud-music-request-from-api (content &key (type 'song) (limit "1"))
+(defun netease-cloud-music-request-from-api (content &optional type limit)
   "Request the CONTENT from Netease Music API.
 
 CONTENT is a string.
 
 TYPE is a symbol, its value can be song.
 
-NUMBER is the limit for the search result."
+LIMIT is the limit for the search result, it's a number."
+  (cond ((null type) (setq type 'song))
+        ((null limit) (setq limit "1")))
   (let (result search-type)
     ;; result type
     (pcase type
@@ -100,7 +102,7 @@ NUMBER is the limit for the search result."
       netease-cloud-music-search-api
       :type "POST"
       :data `(("s" . ,content)
-              ("limit" . ,number)
+              ("limit" . ,limit)
               ("type" . ,search-type)
               ("offset" . "0"))
       :parser 'json-read
@@ -121,10 +123,8 @@ Otherwise return nil."
     (when (= result 121)
       t)))
 
-(defun netease-cloud-music-read-json (data &key sid sname aid aname limit)
+(defun netease-cloud-music-read-json (data &optional sid sname aid aname limit)
   "Read the Netease Music json DATA and return the result.
-
-LIMIT is the data's number.
 
 SID is the song-id.
 
@@ -132,7 +132,9 @@ SNAME is the song-name.
 
 AID is the artist-id.
 
-ANAME is the artist-name."
+ANAME is the artist-name.
+
+LIMIT is the limit for the results, it's a number."
   (when (symbolp limit)
     (setq limit 1))
   (let (result song-json r-sid r-sname r-aid r-aname to-get-json)

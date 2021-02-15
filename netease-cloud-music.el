@@ -106,6 +106,11 @@ pause-message seek-forward-message seek-backward-message"
   :type 'number
   :group 'netease-cloud-music)
 
+(defcustom netease-cloud-music-search-alist nil
+  "List for the songs by searching."
+  :type 'list
+  :group 'netease-cloud-music)
+
 (defvar netease-cloud-music-buffer-name "*Netease-Cloud-Music*"
   "The name of Netease Music buffer.")
 
@@ -229,24 +234,38 @@ Otherwise return nil."
 SONG-NAME is a string."
   (interactive "MEnter the song name: ")
   (if (string= song-name "")
-      (error "[Netease-Cloud-Music]: You can't enter a null string!")
+      (user-error "[Netease-Cloud-Music]: You can't enter a null string!")
 
     ;; Assigned the data from api to variables and call the functions to play the song
-    (let* ((artist-name (read-string "Enter the artist name: "))
+    (let* ((artist-name (read-string "Enter the artist name(can be null): "))
            (search-result
             (netease-cloud-music-read-json
              (netease-cloud-music-request-from-api (format
                                                     "%s %s"
                                                     song-name artist-name)
-                                                   :type 'song
-                                                   :limit netease-cloud-music-search-limit)
-             :sid t :sname t :aname t :limit netease-cloud-music-search-limit)))
+                                                   nil netease-cloud-music-search-limit
+                                                   )
+             t t t t netease-cloud-music-search-limit)))
+      (setq netease-cloud-music-search-alist search-result)
       (netease-cloud-music-search-song--open-switch search-result))))
 
 (defun netease-cloud-music-search-song--open-switch (songs-info)
   "Enter the `netease-cloud-music-switch-mode' to switch song from searched."
-  (interactive)                         ; For debug
-  (netease-cloud-music-open-switch "Songs"))
+  (netease-cloud-music-open-switch "Songs")
+  (with-current-buffer "*Netease-Cloud-Music:Switch->Songs*"
+    (setq-local buffer-read-only nil)
+    (if (listp (car-safe songs-info))
+        (mapc #'(lambda (s)
+                  (insert (propertize (nth 1 s) 'face 'font-lock-keyword-face)
+                          " - "
+                          (propertize (nth 3 s) 'face 'font-lock-function-name-face)
+                          "\n"))
+              songs-info)
+      (insert (propertize (nth 1 songs-info) 'face 'font-lock-keyword-face)
+              " - "
+              (propertize (nth 3 songs-info) 'face 'font-lock-function-name-face)
+              "\n"))
+    (setq-local buffer-read-only t)))
 
 (defun netease-cloud-music-change-repeat-mode ()
   "Change the repeat mode."
@@ -368,9 +387,8 @@ If CONTENT is nil and TYPE is not song, it will print the init content."
          (netease-cloud-music-read-json
           (netease-cloud-music-request-from-api
            (nth netease-cloud-music-playlist-song-index
-                netease-cloud-music-playlist)
-           :type 'song)
-          :sid t :sname t :aname t)))
+                netease-cloud-music-playlist))
+          t t t)))
     (when (string= netease-cloud-music-repeat-mode "")
       (setq netease-cloud-music-repeat-mode "playlist"))
     (netease-cloud-music-play (car result)
@@ -428,8 +446,8 @@ Otherwise return nil."
         (error "[Netease-Cloud-Music]: There's no song at point.")
       (setq search-result (netease-cloud-music-read-json
                            (netease-cloud-music-request-from-api
-                            song-info :type 'song)
-                           :sid t :sname t :aname t))
+                            song-info)
+                           t t t))
       (when (string= netease-cloud-music-repeat-mode "")
         (setq netease-cloud-music-repeat-mode "song"))
       (netease-cloud-music-play (car search-result)
