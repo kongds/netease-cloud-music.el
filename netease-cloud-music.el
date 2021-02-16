@@ -166,6 +166,7 @@ pause-message seek-forward-message seek-backward-message"
   :abbrev-table nil
   :syntax-table nil
   (linum-mode -1)
+  (display-line-numbers-mode -1)
   (setq buffer-read-only t
         truncate-lines t))
 
@@ -293,21 +294,17 @@ Otherwise return nil."
   "Search SONG-NAME from Netease Music and return the song id.
 SONG-NAME is a string."
   (interactive "MEnter the song name: ")
-  (if (string= song-name "")
-      (user-error "[Netease-Cloud-Music]: You can't enter a null string!")
-
-    ;; Assigned the data from api to variables and call the functions to play the song
-    (let* ((artist-name (read-string "Enter the artist name(can be null): "))
-           (search-content (format "%s %s" song-name artist-name))
-           (search-result
-            (netease-cloud-music-read-json
-             (netease-cloud-music-request-from-api search-content nil
-                                                   netease-cloud-music-search-limit)
-             t t t t netease-cloud-music-search-limit)))
-      (setq netease-cloud-music-search-alist
-            (cons search-content search-result)
-            netease-cloud-music-search-page 1)
-      (netease-cloud-music-search-song--open-switch search-result))))
+  (let* ((artist-name (read-string "Enter the artist name(can be null): "))
+         (search-content (format "%s %s" song-name artist-name))
+         (search-result
+          (netease-cloud-music-read-json
+           (netease-cloud-music-request-from-api search-content nil
+                                                 netease-cloud-music-search-limit)
+           t t t t netease-cloud-music-search-limit)))
+    (setq netease-cloud-music-search-alist
+          (cons search-content search-result)
+          netease-cloud-music-search-page 1)
+    (netease-cloud-music-search-song--open-switch search-result)))
 
 (defun netease-cloud-music-search-song--open-switch (songs-info)
   "Enter the `netease-cloud-music-switch-mode' to switch song from searched."
@@ -412,6 +409,19 @@ If CONTENT is nil and TYPE is not song, it will print the init content."
                                    "%s\n" artist-name)
                                   'face '(:foreground "Cyan3"))))))))
       ;; Playlist
+      
+      (when netease-cloud-music-playlist
+        (insert (propertize "\nPlaylist:\n"
+                            'face '(:height 1.05 :foreground "gold2")))
+        (mapc #'(lambda (s)
+                  (insert (format "%s - %s\n"
+                                  (propertize
+                                   (nth 1 s)
+                                   'face 'font-lock-keyword-face)
+                                  (propertize
+                                   (nth 3 s)
+                                   'face 'font-lock-function-name-face))))
+              netease-cloud-music-playlist))
       ;; (let ((playlist
       ;;        (netease-cloud-music-get-playlist 'list)))
       ;;   (when playlist
@@ -424,7 +434,8 @@ If CONTENT is nil and TYPE is not song, it will print the init content."
       ;; TODO: Modify the playlist show way
       
       (setq buffer-read-only t)
-      (goto-line 4))))
+      (goto-char (point-min))
+      (forward-line 4))))
 
 (defun netease-cloud-music-play (song-id song-name artist-name play-type)
   "Play the song by its SONG-ID and update the interface with SONG-NAME"
