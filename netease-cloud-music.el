@@ -435,7 +435,7 @@ If CONTENT is nil and TYPE is not song, it will print the init content."
       
       (setq buffer-read-only t)
       (goto-char (point-min))
-      (forward-line 4))))
+      (forward-line 3))))
 
 (defun netease-cloud-music-play (song-id song-name artist-name play-type)
   "Play the song by its SONG-ID and update the interface with SONG-NAME"
