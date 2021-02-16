@@ -3,7 +3,7 @@
 ;; Author: SpringHan
 ;; Maintainer: SpringHan
 ;; Version: 2.0
-;; Package-Requires: ((cl) (async) (request) (json "1.4"))
+;; Package-Requires: ((cl-lib "1.0") (async) (request) (json "1.4"))
 ;; Homepage: https://github.com/SpringHan/netease-cloud-music.git
 ;; Keywords: Player
 
@@ -30,8 +30,6 @@
 
 ;;; Code:
 
-(eval-when-compile
-  (require 'cl))
 (require 'request)
 (require 'json)
 (require 'async)
@@ -71,7 +69,8 @@
   :type 'string
   :group 'netease-cloud-music)
 
-(defcustom netease-cloud-music-cache-directory (expand-file-name (locate-user-emacs-file "netease-cloud-music/"))
+(defcustom netease-cloud-music-cache-directory
+  (expand-file-name (locate-user-emacs-file "netease-cloud-music/"))
   "The cache directory of Netease Music."
   :type 'string
   :group 'netease-cloud-music)
@@ -93,7 +92,7 @@ It can be song or playlist."
   :group 'netease-cloud-music)
 
 (defcustom netease-cloud-music-player-command
-  '("mplayer" "-slave" "pause\n" "pause\n" "seek 5\n" "seek -5\n")
+  '("mpv" "pause\n" "pause\n" "seek 5\n" "seek -5\n")
   "The player command for playing the online songs.
 Its format is lick this:
 '(command play-online-songs-arg continue-message
@@ -101,7 +100,7 @@ pause-message seek-forward-message seek-backward-message"
   :type 'list
   :group 'netease-cloud-music)
 
-(defcustom netease-cloud-music-search-page 0
+(defcustom netease-cloud-music-search-page nil
   "The search page."
   :type 'number
   :group 'netease-cloud-music)
@@ -153,7 +152,10 @@ pause-message seek-forward-message seek-backward-message"
     (define-key map "q" 'netease-cloud-music-switch-close)
     (define-key map "n" 'next-line)
     (define-key map "p" 'previous-line)
+    (define-key map "f" 'netease-cloud-music-switch-next-page)
+    (define-key map "b" 'netease-cloud-music-switch-prev-page)
     (define-key map (kbd "RET") 'netease-cloud-music-switch-enter)
+    (define-key map "P" 'netease-cloud-music-switch-play-all)
     map)
   "The Netease Cloud Music Switch mode map.")
 
@@ -189,18 +191,57 @@ pause-message seek-forward-message seek-backward-message"
 (defun netease-cloud-music-switch-enter ()
   "The enter action in `netease-cloud-music-switch-mode'."
   (interactive)
-  (let* ((content (substring-no-properties (thing-at-point 'line) 0 -1))
-         (song-info (progn
-                      (string-match "^<<\\(.*\\)>> - \\(.*\\)" content)
-                      (cons (match-string 1 content) (match-string 2 content))))
-         (song (car-safe song-info))
-         (artist (cdr-safe song-info)))
-    (if (not (and song artist))
-        (user-error "[Netease-Cloud-Music]: The song info of the song under cursor is error!")
-      (netease-cloud-music-play
-       (car-safe (netease-cloud-music--get-song-list song artist))
-       song artist "song")
-      (netease-cloud-music-switch-close))))
+  (with-current-buffer (current-buffer)
+    (let* ((content (substring-no-properties (thing-at-point 'line) 0 -1))
+           (song-info (progn
+                        (string-match "^<<\\(.*\\)>> - \\(.*\\)" content)
+                        (cons (match-string 1 content) (match-string 2 content))))
+           (song (car-safe song-info))
+           (artist (cdr-safe song-info)))
+      (if (not (and song artist))
+          (user-error "[Netease-Cloud-Music]: The song info of the song under cursor is error!")
+        (netease-cloud-music-switch-close)
+        (netease-cloud-music-play
+         (car-safe (netease-cloud-music--get-song-list song artist))
+         song artist "song")))))
+
+(defun netease-cloud-music-switch-next-page ()
+  "Next page in switch mode."
+  (interactive)
+  (netease-cloud-music--page (1+ netease-cloud-music-search-page)))
+
+(defun netease-cloud-music-switch-prev-page ()
+  "Previous page in switch mode."
+  (interactive)
+  (unless (< netease-cloud-music-search-page 2)
+    (netease-cloud-music--page (1- netease-cloud-music-search-page))))
+
+(defun netease-cloud-music--page (page)
+  "Goto the PAGE."
+  (let* ((search-content (car netease-cloud-music-search-alist))
+         (limit (* netease-cloud-music-search-limit page))
+         (search-results
+          (netease-cloud-music--catch-songs
+           limit
+           (netease-cloud-music-read-json
+            (netease-cloud-music-request-from-api
+             search-content nil limit)
+            t t t t limit))))
+    (netease-cloud-music-search-song--open-switch
+     search-results)
+    (setq netease-cloud-music-search-page page
+          netease-cloud-music-search-alist
+          (cons search-content search-results))))
+
+(defun netease-cloud-music-switch-play-all ()
+  "Play all the songs in the search list."
+  (interactive)
+  (when netease-cloud-music-search-alist
+    (setq netease-cloud-music-playlist (cdr netease-cloud-music-search-alist))
+    (unless (= 0 netease-cloud-music-playlist-song-index)
+      (setq netease-cloud-music-playlist-song-index 0))
+    (netease-cloud-music-playlist-play)
+    (netease-cloud-music-switch-close)))
 
 ;;;###autoload
 (defun netease-cloud-music ()
@@ -256,22 +297,23 @@ SONG-NAME is a string."
 
     ;; Assigned the data from api to variables and call the functions to play the song
     (let* ((artist-name (read-string "Enter the artist name(can be null): "))
+           (search-content (format "%s %s" song-name artist-name))
            (search-result
             (netease-cloud-music-read-json
-             (netease-cloud-music-request-from-api (format
-                                                    "%s %s"
-                                                    song-name artist-name)
-                                                   nil netease-cloud-music-search-limit
-                                                   )
+             (netease-cloud-music-request-from-api search-content nil
+                                                   netease-cloud-music-search-limit)
              t t t t netease-cloud-music-search-limit)))
-      (setq netease-cloud-music-search-alist search-result)
+      (setq netease-cloud-music-search-alist
+            (cons search-content search-result))
       (netease-cloud-music-search-song--open-switch search-result))))
 
 (defun netease-cloud-music-search-song--open-switch (songs-info)
   "Enter the `netease-cloud-music-switch-mode' to switch song from searched."
-  (netease-cloud-music-open-switch "Songs")
+  (unless (derived-mode-p 'netease-cloud-music-switch-mode)
+    (netease-cloud-music-open-switch "Songs"))
   (with-current-buffer "*Netease-Cloud-Music:Switch->Songs*"
     (setq-local buffer-read-only nil)
+    (erase-buffer)
     (let ((prefix (propertize "<<" 'face 'font-lock-comment-face))
           (end (propertize ">>" 'face 'font-lock-comment-face)))
       (mapc #'(lambda (s)
@@ -315,69 +357,72 @@ When TYPE is song-ask, CONTENT can be:
 '(music-name . artist-name)
 
 If CONTENT is nil and TYPE is not song, it will print the init content."
-  (with-current-buffer netease-cloud-music-buffer-name
-    (setq buffer-read-only nil)
-    (erase-buffer)
-    (insert (propertize
-             "Netease Cloud Music - 网易云音乐\n"
-             'face '(:height 1.1 :foreground "Red3")))
-    ;; Show the repeat mode status
-    (insert (concat
-             (propertize "\nRepeat: "
-                         'face '(:foreground "DeepSkyBlue"))
-             (propertize (if (string= netease-cloud-music-repeat-mode "song")
-                             "SONG\n"
-                           (if (string= netease-cloud-music-repeat-mode "playlist")
-                               "PLAYLIST\n"
-                             "OFF\n"))
-                         'face '(:foreground "LightPink" :weight bold))))
-    ;; When the type is song, insert the current song info.
-    (when (not (null netease-cloud-music-current-song))
-      (insert "\n")
+  (when (get-buffer netease-cloud-music-buffer-name)
+    (with-current-buffer netease-cloud-music-buffer-name
+      (setq buffer-read-only nil)
+      (erase-buffer)
+      (insert (propertize
+               "Netease Cloud Music - 网易云音乐\n"
+               'face '(:height 1.1 :foreground "Red3")))
+      ;; Show the repeat mode status
       (insert (concat
-               (propertize
-                "Current song: "
-                'face '(:height 0.9 :weight bold))
-               (propertize (format
-                            "%s - %s"
-                            (car netease-cloud-music-current-song)
-                            (nth 1 netease-cloud-music-current-song))
-                           'face '(:height 1.0 :foreground "MediumSpringGreen"))
-               (if (string= netease-cloud-music-process-status "playing")
-                   (propertize " [Playing]\n"
-                               'face '(:foreground "OrangeRed"))
-                 (propertize " [Paused]\n"
-                             'face '(:foreground "OrangeRed"))))))
-    ;; Show the song infomation
-    (when content
-      (insert "\n")
-      (pcase type
-        ('song-ask
-         (let ((song-name (car content))
-               (artist-name (nth 1 content)))
-           (insert (concat
-                    (propertize "Song name: "
-                                'face '(:weight bold))
-                    (propertize (format
-                                 "%s\n" song-name "")
-                                'face '(:foreground "Cyan3"))
-                    (propertize "Artist name: "
-                                'face '(:weight bold))
-                    (propertize (format
-                                 "%s\n" artist-name)
-                                'face '(:foreground "Cyan3"))))))))
-    ;; Playlist
-    (let ((playlist
-           (netease-cloud-music-get-playlist 'list)))
-      (when playlist
-        (insert (propertize "\nPlaylist:\n"
-                            'face '(:height 1.05 :foreground "gold2")))
-        (dolist (song playlist)
-          (insert (propertize
-                   (format "%s\n" song)
-                   'face '(:foreground "honeydew4"))))))
-    (setq buffer-read-only t)
-    (goto-line 4)))
+               (propertize "\nRepeat: "
+                           'face '(:foreground "DeepSkyBlue"))
+               (propertize (if (string= netease-cloud-music-repeat-mode "song")
+                               "SONG\n"
+                             (if (string= netease-cloud-music-repeat-mode "playlist")
+                                 "PLAYLIST\n"
+                               "OFF\n"))
+                           'face '(:foreground "LightPink" :weight bold))))
+      ;; When the type is song, insert the current song info.
+      (when (not (null netease-cloud-music-current-song))
+        (insert "\n")
+        (insert (concat
+                 (propertize
+                  "Current song: "
+                  'face '(:height 0.9 :weight bold))
+                 (propertize (format
+                              "%s - %s"
+                              (car netease-cloud-music-current-song)
+                              (nth 1 netease-cloud-music-current-song))
+                             'face '(:height 1.0 :foreground "MediumSpringGreen"))
+                 (if (string= netease-cloud-music-process-status "playing")
+                     (propertize " [Playing]\n"
+                                 'face '(:foreground "OrangeRed"))
+                   (propertize " [Paused]\n"
+                               'face '(:foreground "OrangeRed"))))))
+      ;; Show the song infomation
+      (when content
+        (insert "\n")
+        (pcase type
+          ('song-ask
+           (let ((song-name (car content))
+                 (artist-name (nth 1 content)))
+             (insert (concat
+                      (propertize "Song name: "
+                                  'face '(:weight bold))
+                      (propertize (format
+                                   "%s\n" song-name "")
+                                  'face '(:foreground "Cyan3"))
+                      (propertize "Artist name: "
+                                  'face '(:weight bold))
+                      (propertize (format
+                                   "%s\n" artist-name)
+                                  'face '(:foreground "Cyan3"))))))))
+      ;; Playlist
+      ;; (let ((playlist
+      ;;        (netease-cloud-music-get-playlist 'list)))
+      ;;   (when playlist
+      ;;     (insert (propertize "\nPlaylist:\n"
+      ;;                         'face '(:height 1.05 :foreground "gold2")))
+      ;;     (dolist (song playlist)
+      ;;       (insert (propertize
+      ;;                (format "%s\n" song)
+      ;;                'face '(:foreground "honeydew4"))))))
+      ;; TODO: Modify the playlist show way
+      
+      (setq buffer-read-only t)
+      (goto-line 4))))
 
 (defun netease-cloud-music-play (song-id song-name artist-name play-type)
   "Play the song by its SONG-ID and update the interface with SONG-NAME"
@@ -385,13 +430,11 @@ If CONTENT is nil and TYPE is not song, it will print the init content."
       (user-error "[Netease-Cloud-Music]: There's no song-id!")
     (netease-cloud-music-kill-process)
     (setq netease-cloud-music-process
-          (async-start-process "netease-cloud-music-play:process"
-                               (car netease-cloud-music-player-command)
-                               nil
-                               (nth 1 netease-cloud-music-player-command)
-                               (concat netease-cloud-music-song-link
-                                       (format "%s"
-                                               song-id))))
+          (start-process "netease-cloud-music-play:process"
+                         " *netease-cloud-music-playing*"
+                         (car netease-cloud-music-player-command)
+                         (concat netease-cloud-music-song-link
+                                 (number-to-string song-id))))
     (set-process-sentinel netease-cloud-music-process
                           'netease-cloud-music-process-sentinel)
     (setq netease-cloud-music-process-status "playing")
@@ -400,19 +443,30 @@ If CONTENT is nil and TYPE is not song, it will print the init content."
     (setq netease-cloud-music-play-status play-type)
     (netease-cloud-music-interface-init)))
 
+;; (defun netease-cloud-music-playlist-play ()
+;;   "The function for playlist play mode to play song in the playlist."
+;;   (let ((result
+;;          (netease-cloud-music-read-json
+;;           (netease-cloud-music-request-from-api
+;;            (nth netease-cloud-music-playlist-song-index
+;;                 netease-cloud-music-playlist))
+;;           t t t)))
+;;     (when (string= netease-cloud-music-repeat-mode "")
+;;       (setq netease-cloud-music-repeat-mode "playlist"))
+;;     (netease-cloud-music-play (car result)
+;;                               (nth 1 result)
+;;                               (nth 3 result)
+;;                               "playlist")))
+
 (defun netease-cloud-music-playlist-play ()
-  "The function for playlist play mode to play song in the playlist."
-  (let ((result
-         (netease-cloud-music-read-json
-          (netease-cloud-music-request-from-api
-           (nth netease-cloud-music-playlist-song-index
-                netease-cloud-music-playlist))
-          t t t)))
-    (when (string= netease-cloud-music-repeat-mode "")
-      (setq netease-cloud-music-repeat-mode "playlist"))
-    (netease-cloud-music-play (car result)
-                              (nth 1 result)
-                              (nth 3 result)
+  "Play the playlist songs."
+  (when (string= netease-cloud-music-repeat-mode "")
+    (setq netease-cloud-music-repeat-mode "playlist"))
+  (let ((song
+         (nth netease-cloud-music-playlist-song-index netease-cloud-music-playlist)))
+    (netease-cloud-music-play (car song)
+                              (nth 1 song)
+                              (nth 3 song)
                               "playlist")))
 
 (defun netease-cloud-music-playlist-include-song (song-name)
@@ -435,7 +489,8 @@ Otherwise return nil."
   (let (song-index)
     (dolist (song netease-cloud-music-playlist)
       (when (string= song-name (concat song "\n"))
-        (setq song-index (cl-position song netease-cloud-music-playlist))))
+        (setq song-index
+              (netease-cloud-music--index song netease-cloud-music-playlist))))
     song-index))
 
 (defun netease-cloud-music-play-playlist ()
@@ -476,9 +531,11 @@ Otherwise return nil."
 
 (defun netease-cloud-music-process-sentinel (process event)
   "The sentinel of Netease Music process."
-  (when (string-match "\\(exit\\|finished\\)" event)
+  ;; (when (string-match "\\(exit\\|finished\\)" event))
+  (when (string-match "\\(finished\\|Exiting\\)" event)
     (cond ((string= netease-cloud-music-repeat-mode "off")
            (netease-cloud-music-kill-current-song))
+          
           ((string= netease-cloud-music-play-status "song")
            (setq netease-cloud-music-process-status "")
            (if (string= netease-cloud-music-repeat-mode "off")
@@ -493,6 +550,7 @@ Otherwise return nil."
                   (message "[Netease-Cloud-Music]: The current song is over."))
                  ((string-match "\\(exit\\)" event)
                   (message "[Netease-Cloud-Music]: There is a problem when playing the current song."))))
+          
           ((string= netease-cloud-music-play-status "playlist")
            (if (string= netease-cloud-music-repeat-mode "playlist")
                (netease-cloud-music-play-next-song)
@@ -516,7 +574,7 @@ Otherwise return nil."
       (if (or (null (nth previous-song-index netease-cloud-music-playlist))
               (< previous-song-index 0))
           (if (null netease-cloud-music-repeat-mode)
-              (error "[Netease-Cloud-Music]: There's no song previous.")
+              (user-error "[Netease-Cloud-Music]: There's no song previous!")
             (setq netease-cloud-music-playlist-song-index
                   (- (length netease-cloud-music-playlist) 1)))
         (setq netease-cloud-music-playlist-song-index previous-song-index))
@@ -546,11 +604,11 @@ Otherwise return nil."
     (pcase netease-cloud-music-process-status
       ("playing"
        (process-send-string netease-cloud-music-process
-                            (nth 3 netease-cloud-music-player-command))
+                            (nth 2 netease-cloud-music-player-command))
        (setq netease-cloud-music-process-status "paused"))
       ("paused"
        (process-send-string netease-cloud-music-process
-                            (nth 2 netease-cloud-music-player-command))
+                            (nth 1 netease-cloud-music-player-command))
        (setq netease-cloud-music-process-status "playing")
        (netease-cloud-music-interface-init)))
     (netease-cloud-music-interface-init)))
@@ -569,14 +627,14 @@ Otherwise return nil."
   (interactive)
   (when (netease-cloud-music-process-live-p)
     (process-send-string netease-cloud-music-process
-                         (nth 4 netease-cloud-music-player-command))))
+                         (nth 3 netease-cloud-music-player-command))))
 
 (defun netease-cloud-music-seek-backward ()
   "Seek backward the current song."
   (interactive)
   (when (netease-cloud-music-process-live-p)
     (process-send-string netease-cloud-music-process
-                         (nth 5 netease-cloud-music-player-command))))
+                         (nth 4 netease-cloud-music-player-command))))
 
 ;;; Login
 (defun netease-cloud-music-login (loginfo &optional overwrite)

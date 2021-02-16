@@ -3,10 +3,6 @@
 ;; Author: SpringHan
 ;; Maintainer: SpringHan
 ;; Version: 2.0
-;; Package-Requires: ((cl) (async) (request) (json))
-;; Homepage: https://github.com/SpringHan/netease-cloud-music.el.git
-;; Keywords: Player
-
 
 ;; This file is not part of GNU Emacs
 
@@ -173,12 +169,32 @@ LIMIT is the limit for the results, it's a number."
 
 (defun netease-cloud-music--get-song-list (name artist)
   "Get the song-info list by its NAME and ARTIST."
-  (when netease-cloud-music-search-alist
+  (when (cdr-safe netease-cloud-music-search-alist)
     (catch 'result
-      (dolist (song-list netease-cloud-music-search-alist)
+      (dolist (song-list (cdr netease-cloud-music-search-alist))
+        (print song-list)
         (when (and (string= name (nth 1 song-list))
                    (string= artist (nth 3 song-list)))
           (throw 'result song-list))))))
+
+(defun netease-cloud-music--catch-songs (all song-list)
+  "Catch the song list by ALL length in SONG-LIST."
+  (let ((index (- all netease-cloud-music-search-limit))
+        result)
+    (dotimes (_ netease-cloud-music-search-limit)
+      (setq result (append result (list (nth index song-list))))
+      (setq index (1+ index)))
+    result))
+
+(defun netease-cloud-music--index (ele list)
+  "Get the index of ELE in LIST. Use `equal' to check."
+  (let ((index 0))
+    (catch 'stop
+      (dolist (item list)
+        (when (equal ele item)
+          (throw 'stop t))
+        (setq index (1+ index))))
+    index))
 
 (provide 'netease-cloud-music-functions)
 
