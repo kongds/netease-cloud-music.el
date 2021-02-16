@@ -279,7 +279,8 @@ Otherwise return nil."
   (netease-cloud-music-kill-process)
   (setq netease-cloud-music-process-status ""
         netease-cloud-music-repeat-mode "")
-  (setq netease-cloud-music-playlist-song-index 0)
+  (setq netease-cloud-music-playlist-song-index 0
+        netease-cloud-music-search-page nil)
   (kill-buffer netease-cloud-music-buffer-name))
 
 (defmacro netease-cloud-music-expand-form (&rest form)
@@ -304,7 +305,8 @@ SONG-NAME is a string."
                                                    netease-cloud-music-search-limit)
              t t t t netease-cloud-music-search-limit)))
       (setq netease-cloud-music-search-alist
-            (cons search-content search-result))
+            (cons search-content search-result)
+            netease-cloud-music-search-page 1)
       (netease-cloud-music-search-song--open-switch search-result))))
 
 (defun netease-cloud-music-search-song--open-switch (songs-info)
